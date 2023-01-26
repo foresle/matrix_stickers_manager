@@ -36,40 +36,15 @@ class MatrixStickersManager:
         return response.json()['m.upload.size']
 
     """
-    I cant found API for stickers/emotes, but Cinny use something and Synapse server support his.
-    I think can solve my problem with use API from Cinny code.
-    
-    Some useful links:
-    https://github.com/cinnyapp/cinny/pull/209
-    https://github.com/matrix-org/matrix-spec-proposals/pull/2545
-    https://github.com/cinnyapp/cinny/tree/dev/src/app/molecules/image-pack
-    
-    Then I found next link in Cinny code:
-    https://github.com/Sorunome/matrix-doc/blob/soru/emotes/proposals/2545-emotes.md
+    This code can simplify manage with your native stickers packs.
+    Stickers specs: https://github.com/Sorunome/matrix-doc/blob/soru/emotes/proposals/2545-emotes.md
     """
 
-    @staticmethod
-    def __need_room_admin_permissions(func):
-        """Check admin permission for room"""
-
-        def wrapper(self, room_id: str = 'test', **kwargs):
-            # # https://spec.matrix.org/v1.5/client-server-api/#get_matrixclientv3accountwhoami
-            # response = requests.get(f'https://{self._config.matrix_domain}/_matrix/client/v3/account/whoami'
-            #                         f'?access_token={self._config.matrix_token}')
-            # if response.status_code != 200:
-            #     raise MatrixStickersManagerError(text=response.text)
-            #
-            # user_id: str = response.json()['user_id']
-            #
-            # response = requests.get(f'/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}'
-            #                         f'?access_token={self._config.matrix_token}')
-
-            return func(self, roon_id=room_id, **kwargs)
-
-        return wrapper
-
-    def _upload_media(self,  file_path: str) -> str:
-        """Just upload file to matrix storage and return mxc url"""
+    def _upload_media(self, file_path: str) -> str:
+        """
+        Just upload file to matrix storage and return mxc url
+        https://matrix.org/docs/api/#post-/_matrix/media/v3/upload
+        """
 
         if not os.path.exists(file_path):
             raise MatrixStickersManagerError(text=f'File {file_path} doest exist.')
@@ -90,4 +65,108 @@ class MatrixStickersManager:
             else:
                 return response.json()['content_uri']
 
+    def _get_room_state(self, pack_name: str, room_id: str) -> dict:
+        """
+        Get im.ponies.room_emotes state for pack_name
+        https://matrix.org/docs/api/#get-/_matrix/client/v3/rooms/-roomId-/state/-eventType-/-stateKey-
+        """
 
+        response = requests.get(f'https://{self._config.matrix_domain}/_matrix/client/v3/rooms/{room_id}'
+                                # https://github.com/Sorunome/matrix-doc/blob/soru/emotes/proposals/2545-emotes.md#unstable-prefix
+                                f'/state/im.ponies.room_emotes/{pack_name}'
+                                f'?access_token={self._config.matrix_token}')
+
+        if response.status_code != 200:
+            raise MatrixStickersManagerError(text=response.text)
+        else:
+            return response.json()
+
+    def _make_pack_obj(self, name: str, room_id: str | None = None) -> dict:
+        """
+        If room_id specified try to get state and return dict.
+        If state doest exist create return new dict.
+        """
+
+        if room_id is not None:
+            try:
+                pack = self._get_room_state(pack_name=name, room_id=room_id)
+                assert pack.get('pack', default=False)
+                assert pack['pack'].get('display_name', default=False)
+                assert pack.get('images', default=False)
+                return pack
+            except MatrixStickersManagerError:
+                pass
+
+        pack: dict = {
+            'pack': {'display_name': name},
+            'images': {}
+        }
+
+        return pack
+
+    def _push_pack(self, name: str, room_id: str, pack: dict) -> None:
+        """
+        Update pack with his name.
+        """
+
+        response = requests.put(f'https://{self._config.matrix_domain}/_matrix/client/v3/rooms/{room_id}'
+                                f'/state/im.ponies.room_emotes/{name}'
+                                f'?access_token={self._config.matrix_token}', json=pack)
+
+        if response.status_code != 200:
+            raise MatrixStickersManagerError(text=response.text)
+
+    @staticmethod
+    def _add_sticker_to_pack(pack: dict, shortcode: str, image_mxc: str, usage: str | None = None):
+        """
+        Add sticker to pack.
+        https://github.com/Sorunome/matrix-doc/blob/soru/emotes/proposals/2545-emotes.md#example-image-pack-event
+        Usage can be "sticker" or "emoticon" else both.
+
+        If shortcode already exist raise error.
+        """
+
+        if pack['images'].get(shortcode, False):
+            raise MatrixStickersManagerError(f'This shortcode "{shortcode}" already exist.')
+
+        if usage is not None:
+            pack['images'][shortcode] = {
+                'url': image_mxc,
+                'usage': (usage,)
+            }
+        else:
+            pack['images'][shortcode] = {
+                'url': image_mxc
+            }
+
+    def load_pack_from_folder(self, pack_name: str, folder_path: str, room_id: str,
+                              number_as_shortcode: bool = False, skip_duplicates: bool = False) -> None:
+        """
+        Load all images from folder to pack.
+        """
+
+        image_pack: dict = self._make_pack_obj(name=pack_name, room_id=room_id)
+        all_files: list = []
+
+        for file_path in os.listdir(folder_path):
+            if os.path.isfile(os.path.join(folder_path, file_path)):
+                all_files.append(file_path)
+
+        count: int = 1
+        for file_path in all_files:
+            # Upload image
+            image_url: str = self._upload_media(os.path.join(folder_path, file_path))
+
+            try:
+                self._add_sticker_to_pack(pack=image_pack,
+                                          shortcode=count if number_as_shortcode else os.path.splitext(file_path)[0],
+                                          image_mxc=image_url)
+            except MatrixStickersManagerError as e:
+                if skip_duplicates:
+                    pass
+                else:
+                    raise e
+
+            self._push_pack(name=pack_name, room_id=room_id, pack=image_pack)
+
+            count += 1
