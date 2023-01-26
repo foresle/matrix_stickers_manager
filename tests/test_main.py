@@ -1,7 +1,12 @@
+import pytest
+
 from matrix_stickers_manager import MatrixStickersManager
 
-manager: MatrixStickersManager
+
+@pytest.fixture
+def manager() -> MatrixStickersManager:
+    return MatrixStickersManager(path_to_config='../config.yaml')
 
 
-def test_init_manager():
-    manager = MatrixStickersManager(path_to_config='../config.yaml')
+def test_upload_media(manager):
+    manager._upload_media('cat.jpg')

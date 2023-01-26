@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 import requests
 from dataclass_wizard import YAMLWizard
+import os
+import filetype
 
 
 @dataclass()
@@ -65,3 +67,27 @@ class MatrixStickersManager:
             return func(self, roon_id=room_id, **kwargs)
 
         return wrapper
+
+    def _upload_media(self,  file_path: str) -> str:
+        """Just upload file to matrix storage and return mxc url"""
+
+        if not os.path.exists(file_path):
+            raise MatrixStickersManagerError(text=f'File {file_path} doest exist.')
+
+        filename = os.path.basename(file_path)
+        filemime = filetype.guess(file_path).mime
+
+        with open(file_path, 'rb') as file:
+            response = requests.post(f'https://{self._config.matrix_domain}/_matrix/media/v3/upload'
+                                     f'?filename={filename}'
+                                     f'&access_token={self._config.matrix_token}',
+                                     headers={
+                                         'Content-Type': filemime
+                                     }, data=file)
+
+            if response.status_code != 200:
+                raise MatrixStickersManagerError(text=response.text)
+            else:
+                return response.json()['content_uri']
+
+
