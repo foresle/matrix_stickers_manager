@@ -40,17 +40,30 @@ class MatrixStickersManager:
     Stickers specs: https://github.com/Sorunome/matrix-doc/blob/soru/emotes/proposals/2545-emotes.md
     """
 
-    def _upload_media(self, file_path: str) -> str:
+    def _upload_media(self, file_path: str, image_type_only: bool = True) -> str:
         """
-        Just upload file to matrix storage and return mxc url
+        Just upload media file to matrix storage and return mxc url.
         https://matrix.org/docs/api/#post-/_matrix/media/v3/upload
         """
 
         if not os.path.exists(file_path):
             raise MatrixStickersManagerError(text=f'File {file_path} doest exist.')
 
+        if os.path.getsize(file_path) > self._config.max_media_upload_size:
+            raise MatrixStickersManagerError(text=f'File is so large. '
+                                                  f'Max upload size is {self._config.max_media_upload_size}bytes.')
+
         filename = os.path.basename(file_path)
-        filemime = filetype.guess(file_path).mime
+        filemime = filetype.guess(file_path)
+
+        if filemime is not None:
+            filemime = filemime.mime
+        else:
+            raise MatrixStickersManagerError(text='Unknown file type.')
+
+        if image_type_only:
+            if filemime not in ('image/png', 'image/jpeg', 'image/gif', 'image/webp'):
+                raise MatrixStickersManagerError(text='Invalid media file format.')
 
         with open(file_path, 'rb') as file:
             response = requests.post(f'https://{self._config.matrix_domain}/_matrix/media/v3/upload'
@@ -67,7 +80,7 @@ class MatrixStickersManager:
 
     def _get_room_state(self, pack_name: str, room_id: str) -> dict:
         """
-        Get im.ponies.room_emotes state for pack_name
+        Get im.ponies.room_emotes state for pack_name.
         https://matrix.org/docs/api/#get-/_matrix/client/v3/rooms/-roomId-/state/-eventType-/-stateKey-
         """
 
@@ -84,15 +97,15 @@ class MatrixStickersManager:
     def _make_pack_obj(self, name: str, room_id: str | None = None) -> dict:
         """
         If room_id specified try to get state and return dict.
-        If state doest exist create return new dict.
+        If state doest exist create new dict.
         """
 
         if room_id is not None:
             try:
                 pack = self._get_room_state(pack_name=name, room_id=room_id)
-                assert pack.get('pack', default=False)
-                assert pack['pack'].get('display_name', default=False)
-                assert pack.get('images', default=False)
+                assert 'pack' in pack
+                assert 'display_name' in pack['pack']
+                assert 'images' in pack
                 return pack
             except MatrixStickersManagerError:
                 pass
@@ -139,8 +152,9 @@ class MatrixStickersManager:
                 'url': image_mxc
             }
 
-    def load_pack_from_folder(self, pack_name: str, folder_path: str, room_id: str,
-                              number_as_shortcode: bool = False, skip_duplicates: bool = False) -> None:
+    def load_pack_from_folder(self, pack_name: str, folder_path: str, room_id: str, usage: str | None = None,
+                              number_as_shortcode: bool = False, skip_duplicate_errors: bool = False,
+                              skip_upload_errors: bool = False) -> None:
         """
         Load all images from folder to pack.
         """
@@ -155,15 +169,21 @@ class MatrixStickersManager:
         count: int = 1
         for file_path in all_files:
             # Upload image
-            image_url: str = self._upload_media(os.path.join(folder_path, file_path))
+            try:
+                image_url: str = self._upload_media(os.path.join(folder_path, file_path))
+            except MatrixStickersManagerError as e:
+                if skip_upload_errors:
+                    continue
+                else:
+                    raise e
 
             try:
                 self._add_sticker_to_pack(pack=image_pack,
                                           shortcode=count if number_as_shortcode else os.path.splitext(file_path)[0],
-                                          image_mxc=image_url)
+                                          image_mxc=image_url, usage=usage)
             except MatrixStickersManagerError as e:
-                if skip_duplicates:
-                    pass
+                if skip_duplicate_errors:
+                    continue
                 else:
                     raise e
 
