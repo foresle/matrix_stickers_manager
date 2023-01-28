@@ -152,6 +152,23 @@ class MatrixStickersManager:
                 'url': image_mxc
             }
 
+    def delete_pack(self, pack_name: str, room_id: str) -> None:
+        """
+        Delete pack if it already exists.
+        """
+
+        try:
+            self._get_room_state(pack_name=pack_name, room_id=room_id)
+        except MatrixStickersManagerError:
+            return None
+
+        response = requests.put(f'https://{self._config.matrix_domain}/_matrix/client/v3/rooms/{room_id}'
+                                f'/state/im.ponies.room_emotes/{pack_name}'
+                                f'?access_token={self._config.matrix_token}', json={})
+
+        if response.status_code != 200:
+            raise MatrixStickersManagerError(text=response.text)
+
     def load_pack_from_folder(self, pack_name: str, folder_path: str, room_id: str, usage: str | None = None,
                               number_as_shortcode: bool = False, skip_duplicate_errors: bool = False,
                               skip_upload_errors: bool = False) -> None:

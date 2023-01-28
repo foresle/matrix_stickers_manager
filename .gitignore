@@ -2,3 +2,4 @@
 /.idea
 /config.yaml
 /stickers
+/tests/test.env

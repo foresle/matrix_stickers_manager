@@ -47,8 +47,11 @@ def test_push_pack(manager: MatrixStickersManager, env_variables: Env):
 
 
 def test_load_stickers_from_folder(manager: MatrixStickersManager, env_variables: Env):
+    pack_name: str = uuid.uuid4().hex
+
     manager.load_pack_from_folder(
-        pack_name=uuid.uuid4().hex,
+        pack_name=pack_name,
         folder_path='../stickers/',
         room_id=env_variables('TEST_ROOM_ID')
     )
+    manager.delete_pack(pack_name=pack_name, room_id=env_variables('TEST_ROOM_ID'))
