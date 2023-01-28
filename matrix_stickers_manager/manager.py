@@ -10,6 +10,7 @@ class Config(YAMLWizard):
     matrix_token: str
     matrix_domain: str
     max_media_upload_size: int = 1
+    is_server_admin: bool = False
 
 
 class MatrixStickersManagerError(Exception):
@@ -28,6 +29,7 @@ class MatrixStickersManager:
     def __init__(self, path_to_config: str = 'config.yaml'):
         self._config = Config.from_yaml_file(file=path_to_config)
         self._config.max_media_upload_size = self._check_max_media_upload_size()
+        self._config.is_server_admin = self._is_server_admin()
 
     def _check_max_media_upload_size(self) -> int:
         response = requests.get(f'https://{self._config.matrix_domain}/_matrix/media/v3/config'
@@ -107,7 +109,7 @@ class MatrixStickersManager:
                 assert 'display_name' in pack['pack']
                 assert 'images' in pack
                 return pack
-            except MatrixStickersManagerError:
+            except (MatrixStickersManagerError, AssertionError):
                 pass
 
         pack: dict = {
@@ -171,7 +173,7 @@ class MatrixStickersManager:
 
     def load_pack_from_folder(self, pack_name: str, folder_path: str, room_id: str, usage: str | None = None,
                               number_as_shortcode: bool = False, skip_duplicate_errors: bool = False,
-                              skip_upload_errors: bool = False) -> None:
+                              skip_upload_errors: bool = False, protect_media: bool = True) -> None:
         """
         Load all images from folder to pack.
         """
@@ -188,6 +190,9 @@ class MatrixStickersManager:
             # Upload image
             try:
                 image_url: str = self._upload_media(os.path.join(folder_path, file_path))
+                if self._config.is_server_admin and protect_media:
+                    self._protect_media(image_url)
+
             except MatrixStickersManagerError as e:
                 if skip_upload_errors:
                     continue
@@ -207,3 +212,52 @@ class MatrixStickersManager:
             self._push_pack(name=pack_name, room_id=room_id, pack=image_pack)
 
             count += 1
+
+    def _is_server_admin(self, user_id: str | None = None) -> bool:
+        """
+        Check is user be admin in server.
+        If user_id not specify check by token.
+        """
+
+        if user_id is None:
+            response = requests.get(f'https://{self._config.matrix_domain}/_matrix/client/v3/account/whoami'
+                                    f'?access_token={self._config.matrix_token}')
+
+            if response.status_code != 200:
+                raise MatrixStickersManagerError(text=response.text)
+
+            user_id = response.json()['user_id']
+
+        response = requests.get(f'https://{self._config.matrix_domain}/_synapse/admin/v1/users/{user_id}/admin',
+                                headers={'Authorization': f'Bearer {self._config.matrix_token}'})
+
+        if response.status_code == 403:
+            return False
+        elif response.status_code != 200:
+            raise MatrixStickersManagerError(text=response.text)
+
+        return response.json()['admin']
+
+    @staticmethod
+    def _assemble_mxc_url(mxc_url: str) -> (str, str):
+        """
+        Return parsed mxc url:
+        mxc://<server-name>/<media-id> -> (server_name, media_id)
+
+        https://spec.matrix.org/v1.5/client-server-api/#matrix-content-mxc-uris
+        """
+
+        return tuple(mxc_url[6:].split('/'))
+
+    def _protect_media(self, mxc_url: str) -> None:
+        """
+        Protect media from deleting.
+        """
+
+        mxc_url: tuple = self._assemble_mxc_url(mxc_url)
+        response = requests.post(f'https://{self._config.matrix_domain}'
+                                 f'/_synapse/admin/v1/media/protect/{mxc_url[1]}',
+                                 headers={'Authorization': f'Bearer {self._config.matrix_token}'})
+
+        if response.status_code != 200:
+            raise MatrixStickersManagerError(text=response.text)

@@ -55,3 +55,12 @@ def test_load_stickers_from_folder(manager: MatrixStickersManager, env_variables
         room_id=env_variables('TEST_ROOM_ID')
     )
     manager.delete_pack(pack_name=pack_name, room_id=env_variables('TEST_ROOM_ID'))
+
+
+def test_is_server_admin(manager: MatrixStickersManager):
+    manager._is_server_admin()
+
+
+def test_assemble_mxc_url(manager: MatrixStickersManager):
+    assert ('test.matrix.server', 'tyBrcoBDixOSbEYwswVSwZer') == manager._assemble_mxc_url(
+        'mxc://test.matrix.server/tyBrcoBDixOSbEYwswVSwZer')
