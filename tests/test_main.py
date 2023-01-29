@@ -64,3 +64,10 @@ def test_is_server_admin(manager: MatrixStickersManager):
 def test_assemble_mxc_url(manager: MatrixStickersManager):
     assert ('test.matrix.server', 'tyBrcoBDixOSbEYwswVSwZer') == manager._assemble_mxc_url(
         'mxc://test.matrix.server/tyBrcoBDixOSbEYwswVSwZer')
+
+
+def test_export_pack(manager: MatrixStickersManager, env_variables: Env):
+    manager.export_pack(pack_name=env_variables('TEST_EXISTS_PACK'), room_id=env_variables('TEST_ROOM_ID'),
+                        export_folder='stickers_test/', original_name=True)
+    manager.export_pack(pack_name=env_variables('TEST_EXISTS_PACK'), room_id=env_variables('TEST_ROOM_ID'),
+                        export_folder='stickers_test/', original_name=False)

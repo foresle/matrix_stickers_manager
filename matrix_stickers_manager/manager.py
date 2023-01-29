@@ -1,8 +1,10 @@
+import urllib
 from dataclasses import dataclass
 import requests
 from dataclass_wizard import YAMLWizard
 import os
 import filetype
+import cgi
 
 
 @dataclass()
@@ -96,7 +98,7 @@ class MatrixStickersManager:
         else:
             return response.json()
 
-    def _make_pack_obj(self, name: str, room_id: str | None = None) -> dict:
+    def _make_pack_obj(self, name: str, room_id: str | None = None, new_if_missing: bool = True) -> dict:
         """
         If room_id specified try to get state and return dict.
         If state doest exist create new dict.
@@ -109,8 +111,11 @@ class MatrixStickersManager:
                 assert 'display_name' in pack['pack']
                 assert 'images' in pack
                 return pack
-            except (MatrixStickersManagerError, AssertionError):
-                pass
+            except (MatrixStickersManagerError, AssertionError) as e:
+                if new_if_missing:
+                    pass
+                else:
+                    raise e
 
         pack: dict = {
             'pack': {'display_name': name},
@@ -160,9 +165,17 @@ class MatrixStickersManager:
         """
 
         try:
-            self._get_room_state(pack_name=pack_name, room_id=room_id)
+            pack = self._get_room_state(pack_name=pack_name, room_id=room_id)
         except MatrixStickersManagerError:
             return None
+
+        # Unprotect all media
+        if self._config.is_server_admin:
+            for image in pack['images'].values():
+                try:
+                    self._unprotect_media(image['url'])
+                except MatrixStickersManagerError:
+                    pass
 
         response = requests.put(f'https://{self._config.matrix_domain}/_matrix/client/v3/rooms/{room_id}'
                                 f'/state/im.ponies.room_emotes/{pack_name}'
@@ -261,3 +274,56 @@ class MatrixStickersManager:
 
         if response.status_code != 200:
             raise MatrixStickersManagerError(text=response.text)
+
+    def _unprotect_media(self, mxc_url: str) -> None:
+        """
+        Unprotect media.
+        """
+
+        mxc_url: tuple = self._assemble_mxc_url(mxc_url)
+        response = requests.post(f'https://{self._config.matrix_domain}'
+                                 f'/_synapse/admin/v1/media/unprotect/{mxc_url[1]}',
+                                 headers={'Authorization': f'Bearer {self._config.matrix_token}'})
+
+        if response.status_code != 200:
+            raise MatrixStickersManagerError(text=response.text)
+
+    def export_pack(self, pack_name: str, room_id: str,
+                    export_folder: str = 'stickers/', original_name: bool = True) -> None:
+        """
+        Download all images from pack to folder.
+        Set original file name or number.
+        """
+
+        pack = self._make_pack_obj(name=pack_name, room_id=room_id, new_if_missing=False)
+
+        os.makedirs(export_folder, exist_ok=True)
+        if export_folder[-1:] != '/':
+            export_folder = f'{export_folder}/'
+
+        count: int = 1
+        for image in pack['images'].values():
+            image_url = self._assemble_mxc_url(image['url'])
+            response = requests.get(f'https://{self._config.matrix_domain}/_matrix/media/v3/download'
+                                    f'/{image_url[0]}/{image_url[1]}'
+                                    f'?access_token={self._config.matrix_token}')
+
+            if response.status_code != 200:
+                raise MatrixStickersManagerError(text=response.text)
+
+            if original_name:
+                value, params = cgi.parse_header(response.headers["Content-Disposition"])
+
+                # Check cyrillic
+                if params.get('filename', None) is None:
+                    file_name = urllib.parse.unquote(params['filename*'])
+                    file_name = file_name.split('\'')[2]
+                else:
+                    file_name = params['filename']
+            else:
+                file_name = f'{count}.{response.headers["Content-Type"].split("/")[1]}'
+
+            with open(f'{export_folder}{file_name}', 'wb') as file:
+                file.write(response.content)
+
+            count += 1
