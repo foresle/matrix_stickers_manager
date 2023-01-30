@@ -2,6 +2,8 @@
 
 > "Its solution for massive upload your stickers into Matrix." 
 
+This code using [MSC2545](https://github.com/Sorunome/matrix-doc/blob/soru/emotes/proposals/2545-emotes.md) aka native stickers. Cinny and FluffyChat support this specs already.
+
 ### Config
 
 Just copy `example.config.yaml` to `config.yaml` and write your values.
