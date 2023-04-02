@@ -1,6 +1,6 @@
 # matrix_stickers_manager
 
-> "Its solution for massive upload your stickers into Matrix." 
+> "It's solution for massive upload your stickers into Matrix." 
 
 This code using [MSC2545](https://github.com/Sorunome/matrix-doc/blob/soru/emotes/proposals/2545-emotes.md) aka native stickers. Cinny and FluffyChat support this specs already.
 
