@@ -1,26 +1,23 @@
+import typer
+from typing_extensions import Annotated
+
 from matrix_stickers_manager import MatrixStickersManager
 
-manager = MatrixStickersManager()
 
-# Upload multiple images to sticker pack
-manager.load_pack_from_folder(
-        pack_name='My Funny Sticker Pack',
-        folder_path='stickers/',
-        room_id='!ahkeeyahPhexohtooh:matrix.your.server',
-        protect_media=True,
-        number_as_shortcode=False
-)
+def main(
+        homeserver_domain: Annotated[str, typer.Option(
+            help='Example: matrix.example.com'
+        )],
+        access_token: Annotated[str, typer.Option(
+            help='Your access token.'
+        )]
+) -> None:
+    manager: MatrixStickersManager = MatrixStickersManager(
+        homeserver_domain=homeserver_domain,
+        access_token=access_token
+    )
+    print(f'Hi {manager.user_id}! Your token is valid, Let\'s start a job!')
 
-# Download images from pack
-manager.export_pack(
-        pack_name='My Funny Sticker Pack',
-        export_folder='stickers/',
-        room_id='!ahkeeyahPhexohtooh:matrix.your.server',
-        original_name=True
-)
 
-# Delete pack
-manager.delete_pack(
-        pack_name='My Funny Sticker Pack',
-        room_id='!ahkeeyahPhexohtooh:matrix.your.server',
-)
+if __name__ == '__main__':
+    typer.run(main)
